@@ -80,7 +80,7 @@ pub use gatt::{
 };
 pub use l2cap::{L2capCid, L2capPacket, L2capSignaling, L2capSignalingCode};
 pub use monitor::Monitor;
-pub use packet::{HciEvent, HciOpcode, HciPacket, HciPacketType, MonitorOpcode};
+pub use packet::{HciEvent, HciOpcode, HciPacket, HciPacketType, LeMetaSubevent, MonitorOpcode};
 pub use smp::{
     AddressType, AuthReq, IoCapability, KeyDist, KeypressType, OobDataFlag, PairingFailedReason,
     SmpCode, SmpPdu,

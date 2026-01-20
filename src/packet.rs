@@ -413,7 +413,6 @@ impl std::fmt::Display for HciEvent {
 
 /// LE Meta Event Subevent codes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum LeMetaSubevent {
     /// LE Connection Complete Event
     ConnectionComplete,
@@ -859,5 +858,45 @@ impl HciPacket {
     /// Get the L2CAP CID if this is an ACL packet
     pub fn l2cap_cid(&self) -> Option<crate::l2cap::L2capCid> {
         self.as_l2cap().map(|l| l.cid)
+    }
+
+    /// Check if this is an LE Meta Event
+    pub fn is_le_meta_event(&self) -> bool {
+        matches!(
+            self,
+            HciPacket::Event {
+                event_code: HciEvent::LeMetaEvent,
+                ..
+            }
+        )
+    }
+
+    /// Parse LE Meta Subevent from an LE Meta Event
+    ///
+    /// Returns the subevent code and remaining parameters if this is an LE Meta Event.
+    /// The first byte of an LE Meta Event's parameters is the subevent code.
+    ///
+    /// # Example
+    /// ```
+    /// use mini_btmon_rs::{HciPacket, HciEvent, LeMetaSubevent};
+    ///
+    /// // LE Connection Complete subevent (0x01) with some dummy params
+    /// let event = HciPacket::event(HciEvent::LeMetaEvent, &[0x01, 0x00, 0x40, 0x00]);
+    /// let (subevent, params) = event.as_le_meta_subevent().unwrap();
+    /// assert_eq!(subevent, LeMetaSubevent::ConnectionComplete);
+    /// assert_eq!(params, &[0x00, 0x40, 0x00]);
+    /// ```
+    pub fn as_le_meta_subevent(&self) -> Option<(LeMetaSubevent, &[u8])> {
+        if let HciPacket::Event {
+            event_code: HciEvent::LeMetaEvent,
+            params,
+        } = self
+            && !params.is_empty()
+        {
+            let subevent_code = params[0];
+            let subevent = LeMetaSubevent::from(subevent_code);
+            return Some((subevent, &params[1..]));
+        }
+        None
     }
 }
