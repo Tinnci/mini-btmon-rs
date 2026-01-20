@@ -64,6 +64,7 @@ mod monitor;
 mod packet;
 pub mod smp;
 mod socket;
+pub mod source;
 pub mod testing;
 
 pub use att::{AttError, AttOpcode, AttPdu};
@@ -84,3 +85,4 @@ pub use smp::{
     AddressType, AuthReq, IoCapability, KeyDist, KeypressType, OobDataFlag, PairingFailedReason,
     SmpCode, SmpPdu,
 };
+pub use source::{BtsnoopSource, MockSource, PacketSource, PacketSourceExt};

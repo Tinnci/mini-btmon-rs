@@ -60,6 +60,7 @@ mini-btmon-rs/
 │   ├── gatt.rs          # GATT 层级深度解析（含持久化）
 │   ├── smp.rs           # SMP 安全管理协议解析
 │   ├── btsnoop.rs       # btsnoop 文件格式支持
+│   ├── source.rs        # 数据包源抽象（Mocking 支持）
 │   └── testing.rs       # 测试辅助工具
 ├── examples/
 │   ├── basic.rs              # 基础监控示例

@@ -4,7 +4,7 @@
 
 ## 项目统计
 
-- **核心库**: 包含 9 个核心模块。
+- **核心库**: 包含 10 个核心模块。
 - **示例程序**: 提供 8 个完整示例。
 - **文档**: 包含 README, ARCHITECTURE, QUICKSTART, CONTRIBUTING。
 - **工具**: 包含 Makefile 与 Pre-commit hooks。
@@ -26,6 +26,7 @@
 - **SMP 协议解析**（配对、密钥分发、安全连接）。
 - **控制器过滤**（按 HCI 索引过滤数据包）。
 - **GATT 数据库持久化**（JSON 序列化，需启用 `persist` feature）。
+- **Mocking 支持**（PacketSource trait、BtsnoopSource、MockSource）。
 
 ### 测试支持
 - `expect()`：带超时的断言接口。

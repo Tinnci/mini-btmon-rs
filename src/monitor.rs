@@ -223,3 +223,10 @@ impl Monitor {
         }
     }
 }
+
+// Implement PacketSource for Monitor
+impl crate::source::PacketSource for Monitor {
+    async fn next_packet(&mut self) -> Result<Option<HciPacket>> {
+        Monitor::next_packet(self).await
+    }
+}
