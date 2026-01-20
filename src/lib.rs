@@ -55,12 +55,20 @@
 //! }
 //! ```
 
+pub mod att;
+pub mod btsnoop;
 mod error;
+pub mod l2cap;
 mod monitor;
 mod packet;
 mod socket;
 pub mod testing;
 
+pub use att::{AttError, AttOpcode, AttPdu};
+pub use btsnoop::{
+    BtsnoopReader, BtsnoopRecord, BtsnoopWriter, PacketFlags, create_btsnoop, open_btsnoop,
+};
 pub use error::{Error, Result};
+pub use l2cap::{L2capCid, L2capPacket, L2capSignaling, L2capSignalingCode};
 pub use monitor::Monitor;
 pub use packet::{HciEvent, HciOpcode, HciPacket, HciPacketType};

@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::packet::HciPacket;
+use crate::packet::{HciPacket, MonitorHeader, MonitorOpcode};
 use crate::socket;
 use bytes::{Buf, BytesMut};
 use std::os::unix::io::AsRawFd;
@@ -11,6 +11,7 @@ use tokio::io::unix::AsyncFd;
 pub struct Monitor {
     async_fd: AsyncFd<socket2::Socket>,
     buffer: BytesMut,
+    filter_index: Option<u16>,
 }
 
 impl Monitor {
@@ -38,7 +39,20 @@ impl Monitor {
         Ok(Self {
             async_fd,
             buffer: BytesMut::with_capacity(4096),
+            filter_index: None,
         })
+    }
+
+    /// Create a new HCI monitor filtered for a specific controller index
+    pub async fn new_with_index(index: u16) -> Result<Self> {
+        let mut monitor = Self::new().await?;
+        monitor.filter_index = Some(index);
+        Ok(monitor)
+    }
+
+    /// Set a filter for a specific controller index
+    pub fn set_filter_index(&mut self, index: Option<u16>) {
+        self.filter_index = index;
     }
 
     /// Read the next HCI packet
@@ -117,73 +131,63 @@ impl Monitor {
 
     /// Try to parse a complete packet from the buffer
     fn try_parse_packet(&mut self) -> Result<Option<HciPacket>> {
-        if self.buffer.is_empty() {
-            return Ok(None);
-        }
+        while self.buffer.len() >= 6 {
+            let header = match MonitorHeader::parse(&self.buffer[0..6]) {
+                Some(h) => h,
+                None => return Ok(None),
+            };
 
-        // HCI monitor packets have this structure:
-        // [packet_type: 1 byte][packet_data: variable]
-        //
-        // We need to peek ahead to determine packet length
-        let packet_type = self.buffer[0];
+            let packet_len = header.len as usize;
 
-        let packet_len = match packet_type {
-            0x01 => {
-                // Command
-                if self.buffer.len() < 4 {
-                    return Ok(None); // Need more data
-                }
-                let param_len = self.buffer[3] as usize;
-                4 + param_len
-            }
-            0x04 => {
-                // Event
-                if self.buffer.len() < 3 {
-                    return Ok(None);
-                }
-                let param_len = self.buffer[2] as usize;
-                3 + param_len
-            }
-            0x02 => {
-                // ACL Data
-                if self.buffer.len() < 5 {
-                    return Ok(None);
-                }
-                let data_len = u16::from_le_bytes([self.buffer[3], self.buffer[4]]) as usize;
-                5 + data_len
-            }
-            0x03 => {
-                // SCO Data
-                if self.buffer.len() < 4 {
-                    return Ok(None);
-                }
-                let data_len = self.buffer[3] as usize;
-                4 + data_len
-            }
-            _ => {
-                // Unknown packet type - skip this byte
-                tracing::warn!("Unknown packet type: 0x{:02x}", packet_type);
-                self.buffer.advance(1);
+            // Check if we have the complete packet (header + payload)
+            if self.buffer.len() < 6 + packet_len {
                 return Ok(None);
             }
-        };
 
-        // Check if we have the complete packet
-        if self.buffer.len() < packet_len {
-            return Ok(None);
-        }
+            // Apply controller index filter if set
+            if let Some(target_index) = self.filter_index {
+                // index 0xFFFF is typically used for system-wide monitor events
+                if header.index != target_index && header.index != 0xFFFF {
+                    self.buffer.advance(6 + packet_len);
+                    continue;
+                }
+            }
 
-        // Extract packet data
-        let packet_data = self.buffer.split_to(packet_len).freeze();
+            if let Some(packet_type) = header.opcode.to_packet_type() {
+                // Extract header and payload
+                let _header_data = self.buffer.split_to(6);
+                let payload_data = self.buffer.split_to(packet_len).freeze();
 
-        // Parse the packet
-        match HciPacket::parse(packet_data) {
-            Ok(packet) => Ok(Some(packet)),
-            Err(e) => {
-                tracing::error!("Failed to parse packet: {}", e);
-                Err(e)
+                // Parse the HCI packet (the payload doesn't have an H4 indicator)
+                match HciPacket::parse_no_indicator(packet_type, payload_data) {
+                    Ok(packet) => return Ok(Some(packet)),
+                    Err(e) => {
+                        tracing::error!("Failed to parse HCI packet from monitor data: {}", e);
+                        return Err(e);
+                    }
+                }
+            } else {
+                // This is a system/vendor diagnostic message, not a standard HCI packet
+                match header.opcode {
+                    MonitorOpcode::VendorDiag
+                    | MonitorOpcode::SystemNote
+                    | MonitorOpcode::UserLogging => {
+                        let _header_data = self.buffer.split_to(6);
+                        let payload_data = self.buffer.split_to(packet_len).freeze();
+                        return Ok(Some(HciPacket::Raw {
+                            packet_type: crate::packet::HciPacketType::Diag,
+                            data: payload_data,
+                        }));
+                    }
+                    _ => {
+                        // Ignore other index/control/logging events for now and continue searching buffer
+                        self.buffer.advance(6 + packet_len);
+                        continue;
+                    }
+                }
             }
         }
+        Ok(None)
     }
 
     /// Create a filtered stream that only yields packets matching a predicate

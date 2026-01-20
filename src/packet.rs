@@ -35,6 +35,95 @@ impl From<u8> for HciPacketType {
     }
 }
 
+/// Linux HCI Monitor Opcodes
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u16)]
+pub enum MonitorOpcode {
+    NewIndex = 0,
+    DelIndex = 1,
+    CommandPkt = 2,
+    EventPkt = 3,
+    AclTxPkt = 4,
+    AclRxPkt = 5,
+    ScoTxPkt = 6,
+    ScoRxPkt = 7,
+    OpenIndex = 8,
+    CloseIndex = 9,
+    IndexInfo = 10,
+    VendorDiag = 11,
+    SystemNote = 12,
+    UserLogging = 13,
+    CtrlOpen = 14,
+    CtrlClose = 15,
+    CtrlCommand = 16,
+    CtrlEvent = 17,
+    IsoTxPkt = 18,
+    IsoRxPkt = 19,
+    Unknown = 0xffff,
+}
+
+impl From<u16> for MonitorOpcode {
+    fn from(value: u16) -> Self {
+        match value {
+            0 => MonitorOpcode::NewIndex,
+            1 => MonitorOpcode::DelIndex,
+            2 => MonitorOpcode::CommandPkt,
+            3 => MonitorOpcode::EventPkt,
+            4 => MonitorOpcode::AclTxPkt,
+            5 => MonitorOpcode::AclRxPkt,
+            6 => MonitorOpcode::ScoTxPkt,
+            7 => MonitorOpcode::ScoRxPkt,
+            8 => MonitorOpcode::OpenIndex,
+            9 => MonitorOpcode::CloseIndex,
+            10 => MonitorOpcode::IndexInfo,
+            11 => MonitorOpcode::VendorDiag,
+            12 => MonitorOpcode::SystemNote,
+            13 => MonitorOpcode::UserLogging,
+            14 => MonitorOpcode::CtrlOpen,
+            15 => MonitorOpcode::CtrlClose,
+            16 => MonitorOpcode::CtrlCommand,
+            17 => MonitorOpcode::CtrlEvent,
+            18 => MonitorOpcode::IsoTxPkt,
+            19 => MonitorOpcode::IsoRxPkt,
+            _ => MonitorOpcode::Unknown,
+        }
+    }
+}
+
+impl MonitorOpcode {
+    /// Convert monitor opcode to HciPacketType if applicable
+    pub fn to_packet_type(self) -> Option<HciPacketType> {
+        match self {
+            MonitorOpcode::CommandPkt => Some(HciPacketType::Command),
+            MonitorOpcode::EventPkt => Some(HciPacketType::Event),
+            MonitorOpcode::AclTxPkt | MonitorOpcode::AclRxPkt => Some(HciPacketType::AclData),
+            MonitorOpcode::ScoTxPkt | MonitorOpcode::ScoRxPkt => Some(HciPacketType::ScoData),
+            MonitorOpcode::IsoTxPkt | MonitorOpcode::IsoRxPkt => Some(HciPacketType::IsoData),
+            _ => None,
+        }
+    }
+}
+
+/// Linux HCI Monitor Header (6 bytes)
+#[derive(Debug, Clone, Copy)]
+pub struct MonitorHeader {
+    pub opcode: MonitorOpcode,
+    pub index: u16,
+    pub len: u16,
+}
+
+impl MonitorHeader {
+    pub fn parse(data: &[u8]) -> Option<Self> {
+        if data.len() < 6 {
+            return None;
+        }
+        let opcode = MonitorOpcode::from(u16::from_le_bytes([data[0], data[1]]));
+        let index = u16::from_le_bytes([data[2], data[3]]);
+        let len = u16::from_le_bytes([data[4], data[5]]);
+        Some(Self { opcode, index, len })
+    }
+}
+
 /// HCI Command Opcode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HciOpcode(pub u16);
@@ -106,14 +195,18 @@ pub enum HciPacket {
 }
 
 impl HciPacket {
-    /// Parse a raw HCI packet from bytes
+    /// Parse a raw HCI packet from bytes (with H4 packet type indicator)
     pub fn parse(mut data: Bytes) -> Result<Self> {
         if data.is_empty() {
             return Err(Error::InvalidPacket("Empty packet".into()));
         }
 
         let packet_type = HciPacketType::from(data.get_u8());
+        Self::parse_no_indicator(packet_type, data)
+    }
 
+    /// Parse a raw HCI packet without the H4 indicator byte
+    pub fn parse_no_indicator(packet_type: HciPacketType, mut data: Bytes) -> Result<Self> {
         match packet_type {
             HciPacketType::Command => {
                 if data.remaining() < 3 {
@@ -229,5 +322,37 @@ impl HciPacket {
                 ..
             }
         )
+    }
+
+    /// Parse L2CAP packet from ACL data
+    /// Returns None if this is not an ACL packet or L2CAP parsing fails
+    pub fn as_l2cap(&self) -> Option<crate::l2cap::L2capPacket> {
+        if let HciPacket::AclData { data, .. } = self {
+            crate::l2cap::L2capPacket::parse(data.clone())
+        } else {
+            None
+        }
+    }
+
+    /// Parse ATT PDU from ACL data
+    /// Returns None if this is not an ATT packet or parsing fails
+    pub fn as_att(&self) -> Option<crate::att::AttPdu> {
+        self.as_l2cap().and_then(|l2cap| {
+            if l2cap.is_att() {
+                crate::att::AttPdu::parse(l2cap.payload)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Check if this is an SMP (Security Manager Protocol) packet
+    pub fn is_smp(&self) -> bool {
+        self.as_l2cap().map(|l| l.is_smp()).unwrap_or(false)
+    }
+
+    /// Get the L2CAP CID if this is an ACL packet
+    pub fn l2cap_cid(&self) -> Option<crate::l2cap::L2capCid> {
+        self.as_l2cap().map(|l| l.cid)
     }
 }
