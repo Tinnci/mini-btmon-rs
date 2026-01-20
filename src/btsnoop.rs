@@ -358,7 +358,7 @@ fn serialize_packet(packet: &HciPacket) -> Bytes {
         }
         HciPacket::Event { event_code, params } => {
             buf.put_u8(HciPacketType::Event as u8);
-            buf.put_u8(*event_code as u8);
+            buf.put_u8(event_code.code());
             buf.put_u8(params.len() as u8);
             buf.put_slice(params);
         }
