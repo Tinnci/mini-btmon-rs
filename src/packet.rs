@@ -1,0 +1,233 @@
+use crate::error::{Error, Result};
+use bytes::{Buf, Bytes};
+
+/// HCI packet types from the Bluetooth specification
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum HciPacketType {
+    /// HCI Command packet
+    Command = 0x01,
+    /// HCI ACL Data packet
+    AclData = 0x02,
+    /// HCI SCO Data packet
+    ScoData = 0x03,
+    /// HCI Event packet
+    Event = 0x04,
+    /// ISO Data packet
+    IsoData = 0x05,
+    /// Vendor diagnostic packet
+    Diag = 0xf0,
+    /// Unknown packet type
+    Unknown = 0xff,
+}
+
+impl From<u8> for HciPacketType {
+    fn from(value: u8) -> Self {
+        match value {
+            0x01 => HciPacketType::Command,
+            0x02 => HciPacketType::AclData,
+            0x03 => HciPacketType::ScoData,
+            0x04 => HciPacketType::Event,
+            0x05 => HciPacketType::IsoData,
+            0xf0 => HciPacketType::Diag,
+            _ => HciPacketType::Unknown,
+        }
+    }
+}
+
+/// HCI Command Opcode
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HciOpcode(pub u16);
+
+impl HciOpcode {
+    pub fn ogf(&self) -> u16 {
+        self.0 >> 10
+    }
+
+    pub fn ocf(&self) -> u16 {
+        self.0 & 0x3ff
+    }
+}
+
+/// HCI Event codes
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum HciEvent {
+    InquiryComplete = 0x01,
+    InquiryResult = 0x02,
+    ConnectionComplete = 0x03,
+    ConnectionRequest = 0x04,
+    DisconnectionComplete = 0x05,
+    CommandComplete = 0x0e,
+    CommandStatus = 0x0f,
+    LeMetaEvent = 0x3e,
+    Unknown = 0xff,
+}
+
+impl From<u8> for HciEvent {
+    fn from(value: u8) -> Self {
+        match value {
+            0x01 => HciEvent::InquiryComplete,
+            0x02 => HciEvent::InquiryResult,
+            0x03 => HciEvent::ConnectionComplete,
+            0x04 => HciEvent::ConnectionRequest,
+            0x05 => HciEvent::DisconnectionComplete,
+            0x0e => HciEvent::CommandComplete,
+            0x0f => HciEvent::CommandStatus,
+            0x3e => HciEvent::LeMetaEvent,
+            _ => HciEvent::Unknown,
+        }
+    }
+}
+
+/// Parsed HCI packet
+#[derive(Debug, Clone)]
+pub enum HciPacket {
+    /// HCI Command
+    Command { opcode: HciOpcode, params: Bytes },
+    /// HCI Event
+    Event { event_code: HciEvent, params: Bytes },
+    /// ACL Data
+    AclData {
+        handle: u16,
+        pb_flag: u8,
+        bc_flag: u8,
+        data: Bytes,
+    },
+    /// SCO Data
+    ScoData { handle: u16, data: Bytes },
+    /// ISO Data
+    IsoData { data: Bytes },
+    /// Raw packet (unparsed)
+    Raw {
+        packet_type: HciPacketType,
+        data: Bytes,
+    },
+}
+
+impl HciPacket {
+    /// Parse a raw HCI packet from bytes
+    pub fn parse(mut data: Bytes) -> Result<Self> {
+        if data.is_empty() {
+            return Err(Error::InvalidPacket("Empty packet".into()));
+        }
+
+        let packet_type = HciPacketType::from(data.get_u8());
+
+        match packet_type {
+            HciPacketType::Command => {
+                if data.remaining() < 3 {
+                    return Ok(HciPacket::Raw { packet_type, data });
+                }
+                let opcode = HciOpcode(data.get_u16_le());
+                let param_len = data.get_u8() as usize;
+
+                if data.remaining() < param_len {
+                    return Err(Error::InvalidPacket(format!(
+                        "Command packet too short: expected {} bytes, got {}",
+                        param_len,
+                        data.remaining()
+                    )));
+                }
+
+                let params = data.split_to(param_len);
+                Ok(HciPacket::Command { opcode, params })
+            }
+
+            HciPacketType::Event => {
+                if data.remaining() < 2 {
+                    return Ok(HciPacket::Raw { packet_type, data });
+                }
+                let event_code = HciEvent::from(data.get_u8());
+                let param_len = data.get_u8() as usize;
+
+                if data.remaining() < param_len {
+                    return Err(Error::InvalidPacket(format!(
+                        "Event packet too short: expected {} bytes, got {}",
+                        param_len,
+                        data.remaining()
+                    )));
+                }
+
+                let params = data.split_to(param_len);
+                Ok(HciPacket::Event { event_code, params })
+            }
+
+            HciPacketType::AclData => {
+                if data.remaining() < 4 {
+                    return Ok(HciPacket::Raw { packet_type, data });
+                }
+                let handle_flags = data.get_u16_le();
+                let handle = handle_flags & 0x0fff;
+                let pb_flag = ((handle_flags >> 12) & 0x3) as u8;
+                let bc_flag = ((handle_flags >> 14) & 0x3) as u8;
+                let data_len = data.get_u16_le() as usize;
+
+                if data.remaining() < data_len {
+                    return Err(Error::InvalidPacket(format!(
+                        "ACL packet too short: expected {} bytes, got {}",
+                        data_len,
+                        data.remaining()
+                    )));
+                }
+
+                let acl_data = data.split_to(data_len);
+                Ok(HciPacket::AclData {
+                    handle,
+                    pb_flag,
+                    bc_flag,
+                    data: acl_data,
+                })
+            }
+
+            HciPacketType::ScoData => {
+                if data.remaining() < 3 {
+                    return Ok(HciPacket::Raw { packet_type, data });
+                }
+                let handle = data.get_u16_le() & 0x0fff;
+                let data_len = data.get_u8() as usize;
+
+                if data.remaining() < data_len {
+                    return Err(Error::InvalidPacket(format!(
+                        "SCO packet too short: expected {} bytes, got {}",
+                        data_len,
+                        data.remaining()
+                    )));
+                }
+
+                let sco_data = data.split_to(data_len);
+                Ok(HciPacket::ScoData {
+                    handle,
+                    data: sco_data,
+                })
+            }
+
+            HciPacketType::IsoData => Ok(HciPacket::IsoData { data }),
+
+            _ => Ok(HciPacket::Raw { packet_type, data }),
+        }
+    }
+
+    /// Check if this is an ATT packet (for BLE GATT debugging)
+    pub fn is_att(&self) -> bool {
+        if let HciPacket::AclData { data, .. } = self {
+            // L2CAP header: 2 bytes length + 2 bytes CID
+            if data.len() >= 4 {
+                let cid = u16::from_le_bytes([data[2], data[3]]);
+                return cid == 0x0004; // ATT_CID
+            }
+        }
+        false
+    }
+
+    /// Check if this is a command complete event
+    pub fn is_command_complete(&self) -> bool {
+        matches!(
+            self,
+            HciPacket::Event {
+                event_code: HciEvent::CommandComplete,
+                ..
+            }
+        )
+    }
+}
