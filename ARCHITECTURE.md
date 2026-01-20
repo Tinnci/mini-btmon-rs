@@ -55,13 +55,19 @@ mini-btmon-rs/
 │   ├── socket.rs        # HCI Monitor Socket 绑定
 │   ├── packet.rs        # HCI 数据包解析
 │   ├── monitor.rs       # 监控核心 API
+│   ├── l2cap.rs         # L2CAP 协议解析
+│   ├── att.rs           # ATT 协议解析（完整 PDU 支持）
+│   ├── gatt.rs          # GATT 层级深度解析
+│   ├── btsnoop.rs       # btsnoop 文件格式支持
 │   └── testing.rs       # 测试辅助工具
 ├── examples/
-│   ├── basic.rs         # 基础监控示例
-│   ├── att_filter.rs    # ATT/GATT 过滤示例
-│   ├── integrated.rs    # 集成示例
-│   ├── test_scenario.rs # 自动化测试场景
-│   └── gatt_testing.rs  # BLE GATT 测试
+│   ├── basic.rs              # 基础监控示例
+│   ├── att_filter.rs         # ATT/GATT 过滤示例
+│   ├── integrated.rs         # 集成示例
+│   ├── test_scenario.rs      # 自动化测试场景
+│   ├── gatt_testing.rs       # BLE GATT 测试
+│   ├── l2cap_att_analysis.rs # L2CAP/ATT 协议分析
+│   └── gatt_deep_analysis.rs # GATT 深度解析示例
 ├── Makefile             # 开发管理
 └── README.md            # 项目说明
 ```

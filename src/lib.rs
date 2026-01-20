@@ -58,6 +58,7 @@
 pub mod att;
 pub mod btsnoop;
 mod error;
+pub mod gatt;
 pub mod l2cap;
 mod monitor;
 mod packet;
@@ -69,6 +70,12 @@ pub use btsnoop::{
     BtsnoopReader, BtsnoopRecord, BtsnoopWriter, PacketFlags, create_btsnoop, open_btsnoop,
 };
 pub use error::{Error, Result};
+pub use gatt::{
+    CccdValue, CharacteristicProperties, GattCharacteristic, GattDatabase, GattDescriptor,
+    GattService, GroupTypeEntry, HandleUuidEntry, IncludedService, TypeValueEntry, Uuid,
+    parse_characteristic_declaration, parse_find_info_response, parse_read_by_group_type_response,
+    parse_read_by_type_response, uuid16_name,
+};
 pub use l2cap::{L2capCid, L2capPacket, L2capSignaling, L2capSignalingCode};
 pub use monitor::Monitor;
 pub use packet::{HciEvent, HciOpcode, HciPacket, HciPacketType};

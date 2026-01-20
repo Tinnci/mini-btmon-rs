@@ -4,8 +4,8 @@
 
 ## 项目统计
 
-- **核心库**: 包含 6 个核心模块。
-- **示例程序**: 提供 5 个完整示例。
+- **核心库**: 包含 8 个核心模块。
+- **示例程序**: 提供 7 个完整示例。
 - **文档**: 包含 README, ARCHITECTURE, QUICKSTART, CONTRIBUTING。
 - **工具**: 包含 Makefile 与 Pre-commit hooks。
 
@@ -15,8 +15,14 @@
 - HCI Monitor Socket 绑定。
 - 异步数据包读取（基于 Tokio）。
 - HCI 数据包解析（Command, Event, ACL, SCO）。
+- L2CAP 协议解析（信令、CID 识别）。
+- ATT 协议完整解析（全部 PDU 类型）。
+- **GATT 层级深度解析**（服务、特征、描述符发现）。
+- UUID 解析（16/32/128-bit，含蓝牙 SIG 标准名称映射）。
+- GATT 数据库动态构建。
 - 零拷贝缓冲区管理。
 - 数据包过滤架构。
+- btsnoop 文件格式支持（读取/写入）。
 
 ### 测试支持
 - `expect()`：带超时的断言接口。
@@ -44,9 +50,9 @@
 ## 未来规划
 
 ### 短期
-- L2CAP/ATT/GATT 协议解析。
-- btsnoop 文件格式支持。
+- SMP (Security Manager Protocol) 解析。
 - 控制器过滤。
+- GATT 数据库持久化与加载。
 
 ### 中期
 - 守护进程模式（IPC 架构）。

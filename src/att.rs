@@ -276,11 +276,37 @@ pub enum AttPdu {
     ExchangeMtuResponse { server_mtu: u16 },
     /// Find Information Request
     FindInformationRequest { start_handle: u16, end_handle: u16 },
+    /// Find Information Response
+    FindInformationResponse {
+        /// Format: 0x01 = 16-bit UUIDs, 0x02 = 128-bit UUIDs
+        format: u8,
+        /// Raw data containing handle-UUID pairs
+        data: Bytes,
+    },
+    /// Find By Type Value Request
+    FindByTypeValueRequest {
+        start_handle: u16,
+        end_handle: u16,
+        uuid: u16,
+        value: Bytes,
+    },
+    /// Find By Type Value Response
+    FindByTypeValueResponse {
+        /// Raw data containing handle-group end pairs
+        data: Bytes,
+    },
     /// Read By Type Request
     ReadByTypeRequest {
         start_handle: u16,
         end_handle: u16,
         uuid: Bytes,
+    },
+    /// Read By Type Response
+    ReadByTypeResponse {
+        /// Length of each attribute handle-value pair
+        length: u8,
+        /// Raw data containing handle-value pairs
+        data: Bytes,
     },
     /// Read Request
     ReadRequest { handle: u16 },
@@ -288,11 +314,24 @@ pub enum AttPdu {
     ReadResponse { value: Bytes },
     /// Read Blob Request
     ReadBlobRequest { handle: u16, offset: u16 },
+    /// Read Blob Response
+    ReadBlobResponse { value: Bytes },
+    /// Read Multiple Request
+    ReadMultipleRequest { handles: Bytes },
+    /// Read Multiple Response
+    ReadMultipleResponse { values: Bytes },
     /// Read By Group Type Request
     ReadByGroupTypeRequest {
         start_handle: u16,
         end_handle: u16,
         uuid: Bytes,
+    },
+    /// Read By Group Type Response
+    ReadByGroupTypeResponse {
+        /// Length of each attribute data
+        length: u8,
+        /// Raw data containing (handle, end_handle, value) tuples
+        data: Bytes,
     },
     /// Write Request
     WriteRequest { handle: u16, value: Bytes },
@@ -300,6 +339,25 @@ pub enum AttPdu {
     WriteResponse,
     /// Write Command (no response)
     WriteCommand { handle: u16, value: Bytes },
+    /// Prepare Write Request
+    PrepareWriteRequest {
+        handle: u16,
+        offset: u16,
+        value: Bytes,
+    },
+    /// Prepare Write Response
+    PrepareWriteResponse {
+        handle: u16,
+        offset: u16,
+        value: Bytes,
+    },
+    /// Execute Write Request
+    ExecuteWriteRequest {
+        /// 0x00 = cancel, 0x01 = execute
+        flags: u8,
+    },
+    /// Execute Write Response
+    ExecuteWriteResponse,
     /// Handle Value Notification
     HandleValueNotification { handle: u16, value: Bytes },
     /// Handle Value Indication
@@ -358,6 +416,28 @@ impl AttPdu {
                     end_handle,
                 })
             }
+            AttOpcode::FindInformationResponse => {
+                if data.remaining() < 1 {
+                    return Some(AttPdu::Raw { opcode, data });
+                }
+                let format = data.get_u8();
+                Some(AttPdu::FindInformationResponse { format, data })
+            }
+            AttOpcode::FindByTypeValueRequest => {
+                if data.remaining() < 6 {
+                    return Some(AttPdu::Raw { opcode, data });
+                }
+                let start_handle = data.get_u16_le();
+                let end_handle = data.get_u16_le();
+                let uuid = data.get_u16_le();
+                Some(AttPdu::FindByTypeValueRequest {
+                    start_handle,
+                    end_handle,
+                    uuid,
+                    value: data,
+                })
+            }
+            AttOpcode::FindByTypeValueResponse => Some(AttPdu::FindByTypeValueResponse { data }),
             AttOpcode::ReadByTypeRequest => {
                 if data.remaining() < 4 {
                     return Some(AttPdu::Raw { opcode, data });
@@ -370,6 +450,13 @@ impl AttPdu {
                     end_handle,
                     uuid,
                 })
+            }
+            AttOpcode::ReadByTypeResponse => {
+                if data.remaining() < 1 {
+                    return Some(AttPdu::Raw { opcode, data });
+                }
+                let length = data.get_u8();
+                Some(AttPdu::ReadByTypeResponse { length, data })
             }
             AttOpcode::ReadRequest => {
                 if data.remaining() < 2 {
@@ -387,6 +474,9 @@ impl AttPdu {
                 let offset = data.get_u16_le();
                 Some(AttPdu::ReadBlobRequest { handle, offset })
             }
+            AttOpcode::ReadBlobResponse => Some(AttPdu::ReadBlobResponse { value: data }),
+            AttOpcode::ReadMultipleRequest => Some(AttPdu::ReadMultipleRequest { handles: data }),
+            AttOpcode::ReadMultipleResponse => Some(AttPdu::ReadMultipleResponse { values: data }),
             AttOpcode::ReadByGroupTypeRequest => {
                 if data.remaining() < 4 {
                     return Some(AttPdu::Raw { opcode, data });
@@ -399,6 +489,13 @@ impl AttPdu {
                     end_handle,
                     uuid,
                 })
+            }
+            AttOpcode::ReadByGroupTypeResponse => {
+                if data.remaining() < 1 {
+                    return Some(AttPdu::Raw { opcode, data });
+                }
+                let length = data.get_u8();
+                Some(AttPdu::ReadByGroupTypeResponse { length, data })
             }
             AttOpcode::WriteRequest => {
                 if data.remaining() < 2 {
@@ -417,6 +514,34 @@ impl AttPdu {
                 let value = data;
                 Some(AttPdu::WriteCommand { handle, value })
             }
+            AttOpcode::PrepareWriteRequest | AttOpcode::PrepareWriteResponse => {
+                if data.remaining() < 4 {
+                    return Some(AttPdu::Raw { opcode, data });
+                }
+                let handle = data.get_u16_le();
+                let offset = data.get_u16_le();
+                if opcode == AttOpcode::PrepareWriteRequest {
+                    Some(AttPdu::PrepareWriteRequest {
+                        handle,
+                        offset,
+                        value: data,
+                    })
+                } else {
+                    Some(AttPdu::PrepareWriteResponse {
+                        handle,
+                        offset,
+                        value: data,
+                    })
+                }
+            }
+            AttOpcode::ExecuteWriteRequest => {
+                if data.remaining() < 1 {
+                    return Some(AttPdu::Raw { opcode, data });
+                }
+                let flags = data.get_u8();
+                Some(AttPdu::ExecuteWriteRequest { flags })
+            }
+            AttOpcode::ExecuteWriteResponse => Some(AttPdu::ExecuteWriteResponse),
             AttOpcode::HandleValueNotification => {
                 if data.remaining() < 2 {
                     return Some(AttPdu::Raw { opcode, data });
@@ -445,14 +570,26 @@ impl AttPdu {
             AttPdu::ExchangeMtuRequest { .. } => AttOpcode::ExchangeMtuRequest,
             AttPdu::ExchangeMtuResponse { .. } => AttOpcode::ExchangeMtuResponse,
             AttPdu::FindInformationRequest { .. } => AttOpcode::FindInformationRequest,
+            AttPdu::FindInformationResponse { .. } => AttOpcode::FindInformationResponse,
+            AttPdu::FindByTypeValueRequest { .. } => AttOpcode::FindByTypeValueRequest,
+            AttPdu::FindByTypeValueResponse { .. } => AttOpcode::FindByTypeValueResponse,
             AttPdu::ReadByTypeRequest { .. } => AttOpcode::ReadByTypeRequest,
+            AttPdu::ReadByTypeResponse { .. } => AttOpcode::ReadByTypeResponse,
             AttPdu::ReadRequest { .. } => AttOpcode::ReadRequest,
             AttPdu::ReadResponse { .. } => AttOpcode::ReadResponse,
             AttPdu::ReadBlobRequest { .. } => AttOpcode::ReadBlobRequest,
+            AttPdu::ReadBlobResponse { .. } => AttOpcode::ReadBlobResponse,
+            AttPdu::ReadMultipleRequest { .. } => AttOpcode::ReadMultipleRequest,
+            AttPdu::ReadMultipleResponse { .. } => AttOpcode::ReadMultipleResponse,
             AttPdu::ReadByGroupTypeRequest { .. } => AttOpcode::ReadByGroupTypeRequest,
+            AttPdu::ReadByGroupTypeResponse { .. } => AttOpcode::ReadByGroupTypeResponse,
             AttPdu::WriteRequest { .. } => AttOpcode::WriteRequest,
             AttPdu::WriteResponse => AttOpcode::WriteResponse,
             AttPdu::WriteCommand { .. } => AttOpcode::WriteCommand,
+            AttPdu::PrepareWriteRequest { .. } => AttOpcode::PrepareWriteRequest,
+            AttPdu::PrepareWriteResponse { .. } => AttOpcode::PrepareWriteResponse,
+            AttPdu::ExecuteWriteRequest { .. } => AttOpcode::ExecuteWriteRequest,
+            AttPdu::ExecuteWriteResponse => AttOpcode::ExecuteWriteResponse,
             AttPdu::HandleValueNotification { .. } => AttOpcode::HandleValueNotification,
             AttPdu::HandleValueIndication { .. } => AttOpcode::HandleValueIndication,
             AttPdu::HandleValueConfirmation => AttOpcode::HandleValueConfirmation,
@@ -491,6 +628,33 @@ impl fmt::Display for AttPdu {
                     start_handle, end_handle
                 )
             }
+            AttPdu::FindInformationResponse { format, data } => {
+                let uuid_type = if *format == 0x01 { "16-bit" } else { "128-bit" };
+                write!(
+                    f,
+                    "Find Information Response: {} UUIDs, {} bytes",
+                    uuid_type,
+                    data.len()
+                )
+            }
+            AttPdu::FindByTypeValueRequest {
+                start_handle,
+                end_handle,
+                uuid,
+                value,
+            } => {
+                write!(
+                    f,
+                    "Find By Type Value Request: 0x{:04x}-0x{:04x} uuid=0x{:04x} {} bytes",
+                    start_handle,
+                    end_handle,
+                    uuid,
+                    value.len()
+                )
+            }
+            AttPdu::FindByTypeValueResponse { data } => {
+                write!(f, "Find By Type Value Response: {} bytes", data.len())
+            }
             AttPdu::ReadByTypeRequest {
                 start_handle,
                 end_handle,
@@ -500,6 +664,18 @@ impl fmt::Display for AttPdu {
                     f,
                     "Read By Type Request: 0x{:04x}-0x{:04x} uuid={:02x?}",
                     start_handle, end_handle, uuid
+                )
+            }
+            AttPdu::ReadByTypeResponse { length, data } => {
+                let count = if *length > 0 {
+                    data.len() / (*length as usize)
+                } else {
+                    0
+                };
+                write!(
+                    f,
+                    "Read By Type Response: {} entries, {} bytes each",
+                    count, length
                 )
             }
             AttPdu::ReadRequest { handle } => {
@@ -515,6 +691,15 @@ impl fmt::Display for AttPdu {
                     handle, offset
                 )
             }
+            AttPdu::ReadBlobResponse { value } => {
+                write!(f, "Read Blob Response: {} bytes", value.len())
+            }
+            AttPdu::ReadMultipleRequest { handles } => {
+                write!(f, "Read Multiple Request: {} bytes", handles.len())
+            }
+            AttPdu::ReadMultipleResponse { values } => {
+                write!(f, "Read Multiple Response: {} bytes", values.len())
+            }
             AttPdu::ReadByGroupTypeRequest {
                 start_handle,
                 end_handle,
@@ -524,6 +709,18 @@ impl fmt::Display for AttPdu {
                     f,
                     "Read By Group Type Request: 0x{:04x}-0x{:04x} uuid={:02x?}",
                     start_handle, end_handle, uuid
+                )
+            }
+            AttPdu::ReadByGroupTypeResponse { length, data } => {
+                let count = if *length > 0 {
+                    data.len() / (*length as usize)
+                } else {
+                    0
+                };
+                write!(
+                    f,
+                    "Read By Group Type Response: {} entries, {} bytes each",
+                    count, length
                 )
             }
             AttPdu::WriteRequest { handle, value } => {
@@ -543,6 +740,37 @@ impl fmt::Display for AttPdu {
                     value.len()
                 )
             }
+            AttPdu::PrepareWriteRequest {
+                handle,
+                offset,
+                value,
+            } => {
+                write!(
+                    f,
+                    "Prepare Write Request: handle=0x{:04x} offset={} {} bytes",
+                    handle,
+                    offset,
+                    value.len()
+                )
+            }
+            AttPdu::PrepareWriteResponse {
+                handle,
+                offset,
+                value,
+            } => {
+                write!(
+                    f,
+                    "Prepare Write Response: handle=0x{:04x} offset={} {} bytes",
+                    handle,
+                    offset,
+                    value.len()
+                )
+            }
+            AttPdu::ExecuteWriteRequest { flags } => {
+                let action = if *flags == 0 { "cancel" } else { "execute" };
+                write!(f, "Execute Write Request: {}", action)
+            }
+            AttPdu::ExecuteWriteResponse => write!(f, "Execute Write Response"),
             AttPdu::HandleValueNotification { handle, value } => {
                 write!(
                     f,

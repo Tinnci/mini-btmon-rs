@@ -9,6 +9,10 @@
 - 支持 HCI 数据包监控。
 - 基于 tokio 的异步接口。
 - 强类型数据包解析。
+- **L2CAP/ATT/GATT 协议完整解析**。
+- **GATT 数据库动态构建**。
+- **UUID 标准名称映射**（16/32/128-bit）。
+- btsnoop 文件格式支持。
 - 支持数据包过滤。
 - 易于集成。
 
@@ -125,10 +129,12 @@ target/debug/examples/basic
 
 ## 路线图
 
-- L2CAP, ATT, GATT 协议完整解析。
-- btsnoop 文件格式支持。
-- 数据包注入接口。
-- 控制器过滤。
+- [x] L2CAP, ATT, GATT 协议完整解析。
+- [x] btsnoop 文件格式支持。
+- [ ] SMP (Security Manager Protocol) 解析。
+- [ ] 数据包注入接口。
+- [ ] 控制器过滤。
+- [ ] GATT 数据库持久化。
 
 ## 贡献
 
