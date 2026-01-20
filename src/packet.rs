@@ -351,6 +351,18 @@ impl HciPacket {
         self.as_l2cap().map(|l| l.is_smp()).unwrap_or(false)
     }
 
+    /// Parse SMP PDU from ACL data
+    /// Returns None if this is not an SMP packet or parsing fails
+    pub fn as_smp(&self) -> Option<crate::smp::SmpPdu> {
+        self.as_l2cap().and_then(|l2cap| {
+            if l2cap.is_smp() {
+                crate::smp::SmpPdu::parse(l2cap.payload)
+            } else {
+                None
+            }
+        })
+    }
+
     /// Get the L2CAP CID if this is an ACL packet
     pub fn l2cap_cid(&self) -> Option<crate::l2cap::L2capCid> {
         self.as_l2cap().map(|l| l.cid)

@@ -131,10 +131,10 @@ target/debug/examples/basic
 
 - [x] L2CAP, ATT, GATT 协议完整解析。
 - [x] btsnoop 文件格式支持。
-- [ ] SMP (Security Manager Protocol) 解析。
+- [x] SMP (Security Manager Protocol) 解析。
+- [x] 控制器过滤。
+- [x] GATT 数据库持久化 (`persist` feature)。
 - [ ] 数据包注入接口。
-- [ ] 控制器过滤。
-- [ ] GATT 数据库持久化。
 
 ## 贡献
 

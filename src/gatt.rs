@@ -577,6 +577,38 @@ impl GattDatabase {
             .map(|s| s.characteristics.len())
             .sum()
     }
+
+    /// Clear all services from the database
+    pub fn clear(&mut self) {
+        self.services.clear();
+    }
+
+    /// Save the GATT database to a JSON file
+    ///
+    /// This feature requires the `persist` feature flag to be enabled.
+    #[cfg(feature = "persist")]
+    pub fn save_to_file(&self, path: &std::path::Path) -> std::io::Result<()> {
+        use std::io::Write;
+
+        let serializable = SerializableGattDatabase::from(self);
+        let json = serde_json::to_string_pretty(&serializable)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+        let mut file = std::fs::File::create(path)?;
+        file.write_all(json.as_bytes())?;
+        Ok(())
+    }
+
+    /// Load a GATT database from a JSON file
+    ///
+    /// This feature requires the `persist` feature flag to be enabled.
+    #[cfg(feature = "persist")]
+    pub fn load_from_file(path: &std::path::Path) -> std::io::Result<Self> {
+        let json = std::fs::read_to_string(path)?;
+        let serializable: SerializableGattDatabase = serde_json::from_str(&json)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        Ok(Self::from(serializable))
+    }
 }
 
 impl fmt::Display for GattDatabase {
@@ -740,6 +772,214 @@ pub fn parse_characteristic_declaration(
 
     Some((properties, value_handle, uuid))
 }
+
+// ============================================================================
+// Serializable types for persist feature
+// ============================================================================
+
+#[cfg(feature = "persist")]
+mod serializable {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+
+    /// Serializable UUID representation
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    #[serde(tag = "type", content = "value")]
+    pub enum SerializableUuid {
+        Uuid16(u16),
+        Uuid32(u32),
+        Uuid128(String), // Hex string
+    }
+
+    impl From<&Uuid> for SerializableUuid {
+        fn from(uuid: &Uuid) -> Self {
+            match uuid {
+                Uuid::Uuid16(v) => SerializableUuid::Uuid16(*v),
+                Uuid::Uuid32(v) => SerializableUuid::Uuid32(*v),
+                Uuid::Uuid128(arr) => {
+                    // Convert to hex string
+                    SerializableUuid::Uuid128(arr.iter().map(|b| format!("{:02x}", b)).collect())
+                }
+            }
+        }
+    }
+
+    impl From<SerializableUuid> for Uuid {
+        fn from(uuid: SerializableUuid) -> Self {
+            match uuid {
+                SerializableUuid::Uuid16(v) => Uuid::Uuid16(v),
+                SerializableUuid::Uuid32(v) => Uuid::Uuid32(v),
+                SerializableUuid::Uuid128(s) => {
+                    // Parse hex string back to bytes
+                    let mut arr = [0u8; 16];
+                    for (i, chunk) in s.as_bytes().chunks(2).enumerate() {
+                        if i < 16
+                            && let Ok(byte) =
+                                u8::from_str_radix(std::str::from_utf8(chunk).unwrap_or("00"), 16)
+                        {
+                            arr[i] = byte;
+                        }
+                    }
+                    Uuid::Uuid128(arr)
+                }
+            }
+        }
+    }
+
+    /// Serializable descriptor
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct SerializableDescriptor {
+        pub handle: u16,
+        pub uuid: SerializableUuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub value: Option<String>, // Hex encoded
+    }
+
+    impl From<&GattDescriptor> for SerializableDescriptor {
+        fn from(desc: &GattDescriptor) -> Self {
+            SerializableDescriptor {
+                handle: desc.handle,
+                uuid: SerializableUuid::from(&desc.uuid),
+                value: desc
+                    .value
+                    .as_ref()
+                    .map(|v| v.iter().map(|b| format!("{:02x}", b)).collect()),
+            }
+        }
+    }
+
+    impl From<SerializableDescriptor> for GattDescriptor {
+        fn from(desc: SerializableDescriptor) -> Self {
+            GattDescriptor {
+                handle: desc.handle,
+                uuid: Uuid::from(desc.uuid),
+                value: None, // We don't restore values
+            }
+        }
+    }
+
+    /// Serializable characteristic
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct SerializableCharacteristic {
+        pub declaration_handle: u16,
+        pub value_handle: u16,
+        pub end_handle: u16,
+        pub properties: u8,
+        pub uuid: SerializableUuid,
+        pub descriptors: Vec<SerializableDescriptor>,
+    }
+
+    impl From<&GattCharacteristic> for SerializableCharacteristic {
+        fn from(chrc: &GattCharacteristic) -> Self {
+            SerializableCharacteristic {
+                declaration_handle: chrc.declaration_handle,
+                value_handle: chrc.value_handle,
+                end_handle: chrc.end_handle,
+                properties: chrc.properties.0,
+                uuid: SerializableUuid::from(&chrc.uuid),
+                descriptors: chrc
+                    .descriptors
+                    .iter()
+                    .map(SerializableDescriptor::from)
+                    .collect(),
+            }
+        }
+    }
+
+    impl From<SerializableCharacteristic> for GattCharacteristic {
+        fn from(chrc: SerializableCharacteristic) -> Self {
+            GattCharacteristic {
+                declaration_handle: chrc.declaration_handle,
+                value_handle: chrc.value_handle,
+                end_handle: chrc.end_handle,
+                properties: CharacteristicProperties(chrc.properties),
+                uuid: Uuid::from(chrc.uuid),
+                descriptors: chrc
+                    .descriptors
+                    .into_iter()
+                    .map(GattDescriptor::from)
+                    .collect(),
+                value: None,
+            }
+        }
+    }
+
+    /// Serializable service
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct SerializableService {
+        pub start_handle: u16,
+        pub end_handle: u16,
+        pub uuid: SerializableUuid,
+        pub is_primary: bool,
+        pub characteristics: Vec<SerializableCharacteristic>,
+    }
+
+    impl From<&GattService> for SerializableService {
+        fn from(svc: &GattService) -> Self {
+            SerializableService {
+                start_handle: svc.start_handle,
+                end_handle: svc.end_handle,
+                uuid: SerializableUuid::from(&svc.uuid),
+                is_primary: svc.is_primary,
+                characteristics: svc
+                    .characteristics
+                    .iter()
+                    .map(SerializableCharacteristic::from)
+                    .collect(),
+            }
+        }
+    }
+
+    impl From<SerializableService> for GattService {
+        fn from(svc: SerializableService) -> Self {
+            GattService {
+                start_handle: svc.start_handle,
+                end_handle: svc.end_handle,
+                uuid: Uuid::from(svc.uuid),
+                is_primary: svc.is_primary,
+                includes: vec![],
+                characteristics: svc
+                    .characteristics
+                    .into_iter()
+                    .map(GattCharacteristic::from)
+                    .collect(),
+            }
+        }
+    }
+
+    /// Serializable GATT database
+    #[derive(Serialize, Deserialize, Debug, Clone)]
+    pub struct SerializableGattDatabase {
+        pub version: u32,
+        pub services: Vec<SerializableService>,
+    }
+
+    impl From<&GattDatabase> for SerializableGattDatabase {
+        fn from(db: &GattDatabase) -> Self {
+            SerializableGattDatabase {
+                version: 1,
+                services: db
+                    .services
+                    .values()
+                    .map(SerializableService::from)
+                    .collect(),
+            }
+        }
+    }
+
+    impl From<SerializableGattDatabase> for GattDatabase {
+        fn from(db: SerializableGattDatabase) -> Self {
+            let mut result = GattDatabase::new();
+            for svc in db.services {
+                result.add_service(GattService::from(svc));
+            }
+            result
+        }
+    }
+}
+
+#[cfg(feature = "persist")]
+pub use serializable::*;
 
 #[cfg(test)]
 mod tests {
